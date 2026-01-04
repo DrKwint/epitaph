@@ -1,0 +1,6 @@
+.venv
+logs
+.hypothesis
+.ruff_cache
+.mypy_cache
+__pycache__

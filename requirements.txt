@@ -1,0 +1,12 @@
+jax
+flax
+optax
+gymnasium
+numpy
+chex
+typing_extensions
+ruff
+optax
+hypothesis
+tensorboardX
+matplotlib
