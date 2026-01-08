@@ -282,3 +282,106 @@ def estimate_reward_mc(
     if obs_is_unbatched:
         return expected_reward[0]
     return expected_reward
+
+def estimate_reward_with_crown(
+    obs: jax.Array, 
+    action_seq: jax.Array, 
+    unsafe_A: jax.Array, 
+    unsafe_b: jax.Array, 
+    model: "Epinet", 
+    reward_fn, 
+    verifier: "CrownIBPVerifier", 
+    n_samples: int = 1000, 
+    safety_alpha: float = 5.0, # Penalization weight
+    key: Optional[jax.Array] = None
+) -> jax.Array:
+    """
+    Estimates expected cumulative reward using Monte Carlo sampling for performance,
+    while using CROWN-IBP to calculate a rigorous probability of safety.
+    
+    Args:
+        verifier: Instance of CrownIBPVerifier initialized with the model.
+        safety_alpha: Weight for the log-probability safety penalty.
+    """
+    if key is None:
+        key = jax.random.PRNGKey(0)
+
+    # 1. Handle Batching
+    # We assume this function is called on a BATCH of initial states or plans.
+    obs_is_unbatched = (obs.ndim == 1)
+    if obs_is_unbatched:
+        obs = obs[None, :]
+        # If action_seq is single [H, D], broadcast it to match obs batch if needed
+        # Typically MPPI calls this vmapped over actions, so we treat inputs as batched.
+    
+    batch_size = obs.shape[0]
+    z_dim = model.z_dim
+
+    # 2. Monte Carlo Reward Estimation (Your Original Logic)
+    # We keep this to estimate the "Performance" in the optimistic case.
+    z_samples = jax.random.normal(key, (batch_size, n_samples, z_dim))
+    
+    def single_trajectory_rollout(s0, act_seq, z):
+        def step_fn(carry, action):
+            curr_s, _ = carry
+            # Propagate Mean or Sampled Z for reward? 
+            # Using sampled Z is consistent with the safety check samples below.
+            x = jnp.concatenate([curr_s, action], axis=-1)
+            next_s = model(x[None, :], z[None, :])[0] 
+            
+            # Simple reward (we handle safety penalty separately)
+            reward = reward_fn(next_s, action)
+            return (next_s, True), reward
+
+        _, step_rewards = jax.lax.scan(step_fn, (s0, True), act_seq)
+        return jnp.sum(step_rewards)
+
+    # vmap over samples, then over batch
+    mc_vmap = jax.vmap(single_trajectory_rollout, in_axes=(None, None, 0))
+    batch_vmap = jax.vmap(mc_vmap, in_axes=(0, None, 0))
+    
+    # [Batch]
+    raw_rewards = jnp.mean(batch_vmap(obs, action_seq, z_samples), axis=1)
+
+
+    # 3. CROWN Safety Probability Estimation (The New Logic)
+    
+    # Note: Unsafe Specs (Inside Box) need to be converted to Safe Specs (Outside Box)
+    # for CROWN. Assuming unsafe_A/b define the SAFE region for this snippet 
+    # (or you handle inversion inside get_safe_z_polytope).
+    
+    @jax.vmap
+    def compute_safety_prob(s0, acts, z_batch):
+        # A. Run CROWN-IBP to get the Safe Z Polytope
+        # Returns A_z, b_z such that A_z * z <= b_z guarantees safety
+        # This aggregates constraints from the whole trajectory analytically.
+        A_z, b_z = verifier.get_safe_z_polytope(s0, acts, unsafe_A, unsafe_b)
+        
+        # B. Calculate Probability (Volume of Polytope under Gaussian)
+        # We verify the SAME z_samples against these linear constraints.
+        # This is extremely fast (Matrix Mult) compared to rolling out the NN.
+        
+        # Check: (N_Samples, Z_Dim) @ (Z_Dim, N_Constraints) <= (N_Constraints)
+        # Result: [N_Samples, N_Constraints]
+        constraints_satisfied = (z_batch @ A_z.T) <= b_z[None, :]
+        
+        # A sample is safe ONLY if it satisfies ALL accumulated constraints
+        is_safe_sample = jnp.all(constraints_satisfied, axis=1) # [N_Samples]
+        
+        return jnp.mean(is_safe_sample) # Scalar Probability
+
+    # Calculate probabilities for the batch
+    # We pass the same z_samples we used for reward to calculate the volume
+    safety_probs = compute_safety_prob(obs, action_seq if not obs_is_unbatched else action_seq[None], z_samples)
+
+
+    # 4. Score Fusion
+    # J = Reward + alpha * log(P_safe)
+    # This penalizes high-reward trajectories that rely on a "lucky" narrow Z-region.
+    log_safety = jnp.log(safety_probs + 1e-6) # prevent log(0)
+    
+    final_score = raw_rewards + safety_alpha * log_safety
+    
+    if obs_is_unbatched:
+        return final_score[0]
+    return final_score

@@ -68,7 +68,7 @@ def train_epinet(
     batch_size: int = 32,
     max_epochs: int = 100,
     learning_rate: float = 3e-4,
-    weight_decay: float = 1e-4,
+    weight_decay: float = 1e-5,
     patience: int = 20,
     seed: int = 0,
     log_dir: Optional[str] = None,

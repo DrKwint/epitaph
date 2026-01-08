@@ -138,7 +138,8 @@ class TestPrimitives(unittest.TestCase):
         
         gens_matrix = generators[0]
         x_pts = center + xi @ gens_matrix
-        y_pts = x_pts @ W.T + b
+        # propagate_linear applies: y = x @ W + b (where W is (in_dim, out_dim))
+        y_pts = x_pts @ W + b
         
         # Check all points are in zonotope bounds
         lb, ub = ops.compute_bounds(cz_out)

@@ -119,8 +119,6 @@ def get_safe_z_constraints(model, s0, action_seq, unsafe_A, unsafe_b):
     # We initialize G_z to zero.
     init_center = s0
     init_G_z = jnp.zeros((batch_size, n_z, s0.shape[-1]))
-    
-    lift_epinet_propagation(model, ConstrainedZonotope.create(center=init_center, generators=init_G_z))
     _, (C_stack, d_stack) = jax.lax.scan(scan_fn, (init_center, init_G_z), action_seq_scan)
     
     # C_stack: [Horizon, Batch, N_cons, N_z]
