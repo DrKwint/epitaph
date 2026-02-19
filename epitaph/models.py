@@ -97,6 +97,48 @@ class Epinet(nnx.Module):
 
         return mu + epistemic_offset
 
+    def activation_string(self, x: jax.Array, z: jax.Array):
+        """
+        Returns boolean masks indicating whether each pre-activation (for ReLU units)
+        is positive for the `base_repr`, `learnable_enn`, and `prior_enn` given input
+        `(x, z)`. The masks are lists of boolean arrays (one element per ReLU occurrence).
+
+        Useful for constructing activation strings over ReLU networks.
+        """
+        def seq_masks_and_out(seq, inp):
+            masks = []
+            curr = inp
+            layers = seq.layers
+            for i, layer in enumerate(layers):
+                if isinstance(layer, nnx.Linear):
+                    pre = curr @ layer.kernel + layer.bias
+                    next_is_relu = (i + 1 < len(layers) and layers[i + 1] is nnx.relu)
+                    if next_is_relu:
+                        masks.append(pre > 0)
+                        curr = jax.nn.relu(pre)
+                    else:
+                        curr = pre
+                elif layer is nnx.relu:
+                    curr = jax.nn.relu(curr)
+            return masks, curr
+
+        # 1. Base representation masks
+        base_masks, base_latent = seq_masks_and_out(self.base_repr, x)
+
+        # 2. Prepare Epinet inputs (stop gradient on base latent like forward pass)
+        features_for_enn = jax.lax.stop_gradient(base_latent)
+        enn_input = jnp.concatenate([x, z, features_for_enn], axis=-1)
+
+        # 3. Learnable and Prior masks
+        learnable_masks, _ = seq_masks_and_out(self.learnable_enn, enn_input)
+        prior_masks, _ = seq_masks_and_out(self.prior_enn, enn_input)
+
+        return {
+            'base': base_masks,
+            'learnable': learnable_masks,
+            'prior': prior_masks,
+        }
+
     def propagate_set(self, cz_input: ConstrainedZonotope, cz_z: ConstrainedZonotope) -> ConstrainedZonotope:
         """
         Propagates a constrained zonotope through the Epinet.

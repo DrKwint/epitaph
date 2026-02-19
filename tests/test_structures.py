@@ -73,14 +73,14 @@ class TestStructures(unittest.TestCase):
             gens_matrix = generators[0]  # (n_gen, n_dim)
             x0_pts = center + xi @ gens_matrix  # (n_samples, n_dim)
             
-            # Apply L1
-            x1_pts = x0_pts @ W1.T + b1
+            # Apply L1 (W1 is (n_dim, n_dim) and is applied as x @ W1 + b1, following ops.propagate_linear convention)
+            x1_pts = x0_pts @ W1 + b1
             
             # Apply ReLU
             x2_pts = jax.nn.relu(x1_pts)
             
-            # Apply L3
-            x3_pts = x2_pts @ W2.T + b2
+            # Apply L3 (W2 is (n_dim, n_dim) and is applied as x @ W2 + b2)
+            x3_pts = x2_pts @ W2 + b2
             
             # 5. Check Containment
             lb, ub = ops.compute_bounds(cz_3)

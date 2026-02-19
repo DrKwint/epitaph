@@ -12,14 +12,29 @@ def propagate_linear(
 
     Args:
         cz: Input ConstrainedZonotope.
-        weight: Weight matrix (out_dim, in_dim).
+        weight: Weight matrix. Expected shape (in_dim, out_dim) (nnx.Linear kernel),
+                but this function will detect and transpose if needed.
         bias: Bias vector (out_dim,). Optional.
 
     Returns:
         Transformed ConstrainedZonotope.
     """
-    new_center = cz.center @ weight
-    new_generators = cz.generators @ weight
+    # Weight orientation: nnx.Linear.kernel has shape (in_features, out_features).
+    # Ensure we multiply with matching inner dimensions. If weight shape
+    # does not match cz.n_dim, try transposing it.
+    w = jnp.asarray(weight)
+    if w.shape[0] == cz.n_dim:
+        # (in_dim, out_dim) -> standard: center (B, in_dim) @ w -> (B, out_dim)
+        new_center = cz.center @ w
+        new_generators = cz.generators @ w
+    elif w.shape[1] == cz.n_dim:
+        # weight provided as (out_dim, in_dim) -> transpose
+        wT = w.T
+        new_center = cz.center @ wT
+        new_generators = cz.generators @ wT
+    else:
+        # Last resort: raise informative error about shapes
+        raise ValueError(f"Incompatible shapes for linear propagate: cz.n_dim={cz.n_dim}, weight.shape={w.shape}")
 
     if bias is not None:
         new_center = new_center + bias
