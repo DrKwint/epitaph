@@ -304,3 +304,16 @@ class Epinet(nnx.Module):
         A_z = A_curr[:, s_dim+a_dim:]
         
         return A_s, A_a, A_z, b_curr
+
+class TransitionModel(nnx.Module):
+    def __init__(self, in_features, out_features, rngs: nnx.Rngs):
+        self.l1 = nnx.Linear(in_features, 64, rngs=rngs)
+        self.l2 = nnx.Linear(64, 64, rngs=rngs)
+        self.l3 = nnx.Linear(64, out_features, rngs=rngs)
+        self.relu = nnx.relu
+
+    def __call__(self, x):
+        h1 = self.relu(self.l1(x))
+        h2 = self.relu(self.l2(h1))
+        out = self.l3(h2)
+        return out
