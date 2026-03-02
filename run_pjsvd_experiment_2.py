@@ -168,13 +168,16 @@ class PJSVDExperiment:
         self.model = None
         self.inputs_id = None
         self.targets_id = None
+        self.inputs_id_eval = None
+        self.targets_id_eval = None
         self.inputs_ood = None
         self.targets_ood = None
         self.ensemble = None
 
     def setup(self):
         # Data Collection
-        self.inputs_id, self.targets_id = collect_data(self.env_name, self.steps, positive_policy)
+        self.inputs_id, self.targets_id = collect_data(self.env_name, self.steps, positive_policy, seed=0)
+        self.inputs_id_eval, self.targets_id_eval = collect_data(self.env_name, self.steps, positive_policy, seed=42)
         self.inputs_ood, self.targets_ood = collect_data(self.env_name, self.steps, negative_policy, seed=99)
         
         # Model Training
@@ -255,7 +258,7 @@ class PJSVDExperiment:
             coeffs = z / safe_sigmas
             
             # Normalize global size (e.g. to length 2.0 or 5.0)
-            perturbation_size = 6.0
+            perturbation_size = 5.5
             coeffs = coeffs / np.linalg.norm(coeffs) * perturbation_size
             
             # Linear combination: sum_k (coeff_k * v_k)
@@ -310,8 +313,8 @@ class PJSVDExperiment:
             print(f"[{name}] RMSE: {rmse:.5f} | Var: {avg_var:.5f} | NLL: {nll:.5f} | CalibErr: {cal_err:.5f}")
             return rmse, avg_var, nll
 
-        rmse_id, var_id, nll_id = compute_metrics("ID (Corrected)", self.inputs_id, self.targets_id)
-        rmse_ood, var_ood, nll_ood = compute_metrics("OOD (Corrected)", self.inputs_ood, self.targets_ood)
+        rmse_id, var_id, nll_id = compute_metrics("ID", self.inputs_id_eval, self.targets_id_eval)
+        rmse_ood, var_ood, nll_ood = compute_metrics("OOD", self.inputs_ood, self.targets_ood)
         
         rmse_ratio = rmse_ood / (rmse_id + 1e-6)
         print(f"\nRMSE Ratio (OOD / ID): {rmse_ratio:.2f}x")
